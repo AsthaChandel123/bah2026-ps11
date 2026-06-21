@@ -29,6 +29,13 @@ import zipfile
 EUROSAT_RGB_URL = "https://madm.dfki.de/files/sentinel/EuroSAT.zip"
 EUROSAT_MS_URL = "https://madm.dfki.de/files/sentinel/EuroSATallBands.zip"
 
+# HuggingFace dataset mirrors (parquet) used as a robust fallback when the DFKI
+# zip host is unavailable (it intermittently returns HTTP 503). These hold the
+# *real* EuroSAT imagery as ``image`` bytes + integer ``label`` + ``filename``
+# (the filename prefix is the land-cover class name).
+EUROSAT_HF_RGB_REPO = "blanchon/EuroSAT_RGB"
+EUROSAT_HF_MS_REPO = "blanchon/EuroSAT"  # 13-band GeoTIFF variant
+
 DATASETS = {
     "SEN12MS": {
         "what": "SAR(VV/VH)+MS(13b)+RGB(derived)+IGBP landcover, pixel-aligned",
@@ -87,8 +94,93 @@ def _download(url: str, dest_zip: str) -> None:
     sys.stdout.write("\n")
 
 
+def fetch_eurosat_hf(root: str, bands: str = "rgb", splits: tuple = ("train",)) -> int:
+    """Materialise EuroSAT from the HuggingFace parquet mirror into *root*.
+
+    Robust fallback for when the DFKI zip host is down (HTTP 503). Reads the
+    ``image``/``label``/``filename`` columns of the HF parquet(s) and writes a
+    standard ImageFolder layout ``root/<ClassName>/<filename>`` that the
+    :class:`xsretrieval.data.datasets.EuroSATDataset` adapter reads directly.
+
+    Needs ``huggingface_hub`` + ``pyarrow`` + ``pillow`` (all light). Returns 0
+    on success, 1 on failure (e.g. those deps or the network are unavailable).
+    """
+    if bands == "all":
+        # The 13-band HF variant ships GeoTIFFs; decoding/writing them is more
+        # involved. Keep the (smaller) RGB HF fallback as the supported path and
+        # let the caller decide. For all-bands prefer the DFKI zip.
+        print("[eurosat-hf] all-bands HF materialisation not implemented; "
+              "use the DFKI zip for the 13-band set.", file=sys.stderr)
+        return 1
+    try:
+        import io
+
+        from huggingface_hub import hf_hub_download
+        import pyarrow.parquet as pq
+        from PIL import Image
+    except Exception as exc:  # pragma: no cover - env dependent
+        print(f"[eurosat-hf] missing dependency ({exc}); "
+              f"install huggingface_hub pyarrow pillow.", file=sys.stderr)
+        return 1
+
+    repo = EUROSAT_HF_RGB_REPO
+    os.makedirs(root, exist_ok=True)
+    print(f"[eurosat-hf] source: HuggingFace dataset {repo} (parquet)")
+    n_written = 0
+    for split in splits:
+        fname = f"data/{split}-00000-of-00001.parquet"
+        try:
+            path = hf_hub_download(repo, fname, repo_type="dataset")
+        except Exception as exc:  # pragma: no cover - network dependent
+            print(f"[eurosat-hf] could not fetch {fname}: {exc}", file=sys.stderr)
+            continue
+        pf = pq.ParquetFile(path)
+        for batch in pf.iter_batches(batch_size=512):
+            cols = batch.to_pydict()
+            images = cols["image"]
+            filenames = cols.get("filename")
+            labels = cols.get("label")
+            for i, img in enumerate(images):
+                data = img["bytes"] if isinstance(img, dict) else img
+                fn = (
+                    filenames[i]
+                    if filenames is not None
+                    else f"img_{n_written}.png"
+                )
+                # Class name is the filename prefix before the trailing "_<n>".
+                stem = os.path.splitext(os.path.basename(fn))[0]
+                cls = stem.rsplit("_", 1)[0] if "_" in stem else (
+                    f"class_{labels[i]}" if labels is not None else "unknown"
+                )
+                cdir = os.path.join(root, cls)
+                os.makedirs(cdir, exist_ok=True)
+                # Write as PNG (lossless) so the RGB pixels are faithful.
+                out_name = os.path.splitext(os.path.basename(fn))[0] + ".png"
+                out_path = os.path.join(cdir, out_name)
+                if not os.path.exists(out_path):
+                    try:
+                        Image.open(io.BytesIO(data)).convert("RGB").save(out_path)
+                    except Exception:  # pragma: no cover - corrupt row
+                        continue
+                n_written += 1
+            sys.stdout.write(f"\r[eurosat-hf] wrote {n_written} images ...")
+            sys.stdout.flush()
+    sys.stdout.write("\n")
+    if n_written == 0:
+        print("[eurosat-hf] no images materialised.", file=sys.stderr)
+        return 1
+    print(f"[eurosat-hf] done. {n_written} images under {root}\n"
+          f"  data.dataset: eurosat\n  data.root: {root}")
+    return 0
+
+
 def fetch_eurosat(root: str, bands: str = "rgb") -> int:
-    """Download + extract EuroSAT into *root*. ``bands`` is ``"rgb"`` or ``"all"``."""
+    """Download + extract EuroSAT into *root*. ``bands`` is ``"rgb"`` or ``"all"``.
+
+    Tries the DFKI zip first; on any failure (the host intermittently returns
+    HTTP 503) falls back to the HuggingFace parquet mirror for the RGB set so the
+    automated proof can still obtain *real* imagery.
+    """
     os.makedirs(root, exist_ok=True)
     url = EUROSAT_MS_URL if bands == "all" else EUROSAT_RGB_URL
     dest_zip = os.path.join(root, os.path.basename(url))
@@ -100,7 +192,10 @@ def fetch_eurosat(root: str, bands: str = "rgb") -> int:
         try:
             _download(url, dest_zip)
         except Exception as exc:  # pragma: no cover - network dependent
-            print(f"[eurosat] download failed: {exc}", file=sys.stderr)
+            print(f"[eurosat] zip download failed: {exc}", file=sys.stderr)
+            if bands != "all":
+                print("[eurosat] falling back to HuggingFace parquet mirror ...")
+                return fetch_eurosat_hf(root, bands="rgb")
             print(f"[eurosat] download manually from {url} and unzip into {root}")
             return 1
     print(f"[eurosat] extracting {dest_zip} ...")
@@ -109,6 +204,9 @@ def fetch_eurosat(root: str, bands: str = "rgb") -> int:
             zf.extractall(root)
     except Exception as exc:  # pragma: no cover - file dependent
         print(f"[eurosat] extract failed: {exc}", file=sys.stderr)
+        if bands != "all":
+            print("[eurosat] falling back to HuggingFace parquet mirror ...")
+            return fetch_eurosat_hf(root, bands="rgb")
         return 1
     print(f"[eurosat] done. Point a config at it:\n"
           f"  data.dataset: eurosat\n  data.root: {root}")

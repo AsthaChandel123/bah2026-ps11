@@ -14,11 +14,52 @@
 SAR→SAR, MS→MS) **and** **cross-modal** (optical↔SAR, optical↔MS, …), on a held-out
 split, with low average per-query retrieval time. Cross-modal is weighted higher.
 
-**Status today (be honest in any report you write).** The repo's headline numbers so
-far (`smoke-test`: F1@5≈0.26, F1@10_cross≈0.32) are produced by a **synthetic numpy
-substrate** — no foundation-model weights, no real satellite imagery. They prove the
-*mechanism* (whitening closes the modality gap; sub-ms search) and nothing about real
-accuracy. **No real-data run has been produced yet.** This runbook produces it.
+**Status today (be honest in any report you write).** The repo's `smoke-test` numbers
+(F1@5≈0.26, F1@10_cross≈0.32) are produced by a **synthetic numpy substrate** — no
+foundation-model weights, no real satellite imagery; they prove the *mechanism*
+(whitening closes the modality gap; sub-ms search) and nothing about real accuracy.
+
+**A REAL same-modal run HAS now been produced** (see `docs/REAL_PROOF_RESULTS.md`):
+real EuroSAT Sentinel-2 RGB imagery (auto-downloaded), embedded with the real
+**DINOv2-small** backbone, zero-shot + per-modality ZCA whitening, on a CPU box →
+**F1@5 ≈ 0.37 / F1@10 ≈ 0.43 same-modal optical** (class-balanced gallery,
+`R_q ≈ 10`). That is a genuine foundation-model result on real data, not synthetic.
+The cross-modal proof and the push toward ≥ 0.8 (training + a multispectral-capable
+backbone + SEN12MS, on GPU) is what the rest of this runbook produces.
+
+### One-command automated entrypoint (`make real-proof`)
+
+`scripts/run_real_proof.py` (alias `make real-proof`) is the **automated, hands-off**
+real-data proof: it resolves the device, downloads EuroSAT (DFKI zip, or the
+HuggingFace parquet mirror if the DFKI host is down), loads real Samples, builds a
+class-balanced query/gallery split (`R_q ≈ K`), constructs a `RetrievalEngine` with a
+**real** backbone (auto-tries DINOv2 / OpenCLIP / DOFA, falling back to the numpy
+backbone only if weights truly can't load — and recording which ran), fits
+per-modality whitening, optionally trains the projection head, evaluates, saves
+artifacts, and writes `docs/REAL_PROOF_RESULTS.md`. It uses the real Python API end to
+end (no missing CLI flags).
+
+```bash
+# CPU, same-modal optical real proof (the guaranteed real result):
+make real-proof                                   # EuroSAT, auto backbone, subset 2000
+python scripts/run_real_proof.py --dataset eurosat --backbone auto --device cpu \
+    --subset 2000 --gallery-per-class 10 --query-per-class 5 --no-train
+
+# GPU, full same- AND cross-modal proof toward F1 ≥ 0.8 (this section's goal):
+python scripts/run_real_proof.py --dataset sen12ms --backbone dofa --device cuda \
+    --train --epochs 30 --gallery-per-class 8
+```
+
+On a GPU box `--device cuda --dataset sen12ms --train` runs the full cross-modal
+proof: a multispectral/SAR-aware backbone (DOFA/CROMA) on co-registered Sentinel-1/2,
+the projection-head training loop (now GPU-accelerated, see below), and the
+class-balanced gallery — the configuration designed to clear F1 ≥ 0.8 on both
+same- and cross-modal. (SEN12MS is multi-hundred-GB and account-gated, so its
+*download* is not automated by the script — stage it per §1; the script's adapters
+then scan it. EuroSAT is fully automated.)
+
+The rest of this runbook is the manual, config-driven path that the automated script
+wraps; read it to tune levers (§3) and to run SEN12MS/DFC2020.
 
 **The achievability claim.** Because `F1@K = 2·r_K / (K + R_q)` is *bounded by the
 relevant-set size `R_q`* (see §3a), F1 ≥ 0.8 is only reachable if the gallery is
@@ -67,15 +108,18 @@ python -m xsretrieval.cli info       # lists installed deps + registered backbon
 …) and the registered backbone names. Confirm `torch OK`, `faiss OK`,
 `transformers OK` before proceeding.
 
-> **`TODO (wire this)` — GPU device in the training path.** Configs expose
-> `backbone.kwargs.device` (set it to `cuda`), and torch-backed backbones honor it.
-> However, the projection-head trainer (`xsretrieval/alignment/trainer.py`) caches
-> frozen embeddings and creates the head/loss tensors on the default device without
-> an explicit `.to("cuda")`. On a GPU box you will still get correct results, but to
-> get real GPU *acceleration* of the head training you may need to move
-> `head`, `loss_fn`, `feats_t`, and the per-batch tensors to `cuda` (and back for
-> numpy). The backbone forward pass (the expensive part) already runs on
-> `backbone.kwargs.device`, so this matters most for large heads / many epochs.
+> **✅ DONE (was `TODO #2`) — GPU device in the training path.** The
+> projection-head trainer (`xsretrieval/alignment/trainer.py`) is now
+> **device-aware**: it resolves a device (new `train.device` config field →
+> `backbone.kwargs.device` → auto-detect cuda-if-available) and moves the
+> `head`, `loss_fn` (incl. the ArcFace prototypes), the cached `feats_t`, and the
+> per-batch label/modality tensors to it via `.to(device)`. The post-train
+> `_quick_eval` routing projection also moves its inputs to the same device, so a
+> head trained on `cuda` evaluates without a host/device mismatch. A requested
+> `cuda` that is unavailable degrades to `cpu` with a warning, so **CPU behavior is
+> unchanged** (verified by a 2-epoch CPU training run). Set `train.device: cuda`
+> (or pass `--device cuda` to `scripts/run_real_proof.py --train`) on a GPU box to
+> actually accelerate head training.
 
 ---
 

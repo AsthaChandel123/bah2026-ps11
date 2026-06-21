@@ -75,6 +75,45 @@ def _torch():
     return torch
 
 
+def _resolve_device(config: Any, torch: Any) -> str:
+    """Resolve the torch device string for training.
+
+    Resolution order:
+
+    1. ``config.train.device`` if present and non-empty (``"auto"`` resolves to
+       cuda-if-available, anything else is used verbatim);
+    2. else ``config.backbone.kwargs["device"]`` (so a config that already points
+       the backbone at ``cuda`` trains the head on ``cuda`` too);
+    3. else auto-detect (``"cuda"`` when ``torch.cuda.is_available()`` else
+       ``"cpu"``).
+
+    A requested ``"cuda"`` that is not actually available degrades to ``"cpu"``
+    with a warning, so CPU-only boxes behave identically regardless of config.
+    """
+    requested: Optional[str] = None
+    tc = getattr(config, "train", None)
+    dev = getattr(tc, "device", None) if tc is not None else None
+    if isinstance(dev, str) and dev.strip():
+        requested = dev.strip().lower()
+    if requested is None:
+        bc = getattr(config, "backbone", None)
+        kw = dict(getattr(bc, "kwargs", {}) or {}) if bc is not None else {}
+        bdev = kw.get("device")
+        if isinstance(bdev, str) and bdev.strip():
+            requested = bdev.strip().lower()
+
+    if requested in (None, "auto"):
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if requested.startswith("cuda") and not torch.cuda.is_available():
+        logger.warning(
+            "device %r requested but torch.cuda.is_available() is False; "
+            "training on CPU instead.",
+            requested,
+        )
+        return "cpu"
+    return requested
+
+
 def _encode_frozen(backbone: Any, samples: list[Sample], batch_size: int) -> np.ndarray:
     """Encode all samples with the frozen backbone, grouped by modality.
 
@@ -141,6 +180,9 @@ def train_projection(
     torch.manual_seed(rng_seed)
     np.random.seed(rng_seed)
 
+    device = _resolve_device(config, torch)
+    logger.info("training projection head on device=%s", device)
+
     modalities = sorted(
         {(s.modality.value if isinstance(s.modality, Modality) else str(s.modality)) for s in train_samples}
     )
@@ -161,9 +203,11 @@ def train_projection(
     ]
     n_classes = int(labels.max()) + 1 if len(labels) else 1
 
-    feats_t = torch.from_numpy(feats)
+    # Cache the frozen embeddings on the resolved device so every per-batch
+    # gather/matmul stays on-device (real GPU acceleration of head training).
+    feats_t = torch.from_numpy(feats).to(device)
 
-    # 2) Build the head + loss + optimizer.
+    # 2) Build the head + loss + optimizer (all on the resolved device).
     head = ProjectionHeads(
         in_dim=in_dim,
         out_dim=pc.out_dim,
@@ -171,7 +215,7 @@ def train_projection(
         share_final=pc.share_final,
         hidden=pc.hidden,
         dropout=pc.dropout,
-    )
+    ).to(device)
     head.train()
     loss_fn = CrossModalRetrievalLoss(
         in_dim=pc.out_dim,
@@ -180,7 +224,7 @@ def train_projection(
         w_arcface=tc.w_arcface,
         w_triplet=tc.w_triplet,
         temperature=tc.temperature,
-    )
+    ).to(device)
     params = list(head.parameters()) + list(loss_fn.parameters())
     optimizer = optim.AdamW(params, lr=tc.lr, weight_decay=tc.weight_decay)
 
@@ -196,7 +240,7 @@ def train_projection(
 
     def _project_batch(idx: np.ndarray) -> "torch.Tensor":
         """Project a batch of cached features per modality and stack (B, out_dim)."""
-        out = torch.empty((len(idx), pc.out_dim), dtype=torch.float32)
+        out = torch.empty((len(idx), pc.out_dim), dtype=torch.float32, device=device)
         idx_mods = mod_ints[idx]
         for mi, m in enumerate(mod_enums):
             sel = np.where(idx_mods == mi)[0]
@@ -215,8 +259,8 @@ def train_projection(
         for batch_idx in sampler:
             idx = np.asarray(batch_idx, dtype=np.int64)
             z = _project_batch(idx)
-            y = torch.from_numpy(labels[idx])
-            m = torch.from_numpy(mod_ints[idx])
+            y = torch.from_numpy(labels[idx]).to(device)
+            m = torch.from_numpy(mod_ints[idx]).to(device)
             locs = [location_ids[i] for i in idx]
             total, comps = loss_fn(z, y, modalities=m, location_ids=locs)
             optimizer.zero_grad()
@@ -239,7 +283,9 @@ def train_projection(
 
     val_metrics: Optional[dict] = None
     if val_samples:
-        val_metrics = _quick_eval(head, backbone, val_samples, config, mod_enums)
+        val_metrics = _quick_eval(
+            head, backbone, val_samples, config, mod_enums, device=device
+        )
 
     return TrainResult(head=head, history=history, val_metrics=val_metrics)
 
@@ -258,6 +304,7 @@ def _quick_eval(
     val_samples: list[Sample],
     config: Any,
     mod_enums: list[Modality],
+    device: str = "cpu",
 ) -> dict:
     """Run a quick same/cross F1 eval with the trained head wired into an engine."""
     from xsretrieval.eval.benchmark import evaluate
@@ -271,7 +318,7 @@ def _quick_eval(
     slot: dict[str, Any] = {"mod": None}
     engine = RetrievalEngine(
         _ModalityAwareBackbone(backbone, slot),
-        projection=_RoutingProjection(head, slot),
+        projection=_RoutingProjection(head, slot, device=device),
     )
     queries, gallery = make_query_gallery(config, val_samples)
     if not queries or not gallery:
@@ -295,16 +342,24 @@ class _ModalityAwareBackbone:
 
 
 class _RoutingProjection:
-    """Project a numpy batch with a torch head, routing by the shared slot."""
+    """Project a numpy batch with a torch head, routing by the shared slot.
 
-    def __init__(self, head: Any, slot: dict) -> None:
+    Moves the input to the head's training ``device`` so a head trained on
+    ``cuda`` evaluates without a host/device mismatch; the result is always
+    returned as a CPU numpy array for the (numpy) retrieval index.
+    """
+
+    def __init__(self, head: Any, slot: dict, device: str = "cpu") -> None:
         self._head = head
         self._slot = slot
+        self._device = device
 
     def forward(self, emb: np.ndarray) -> np.ndarray:
         import torch  # local, lazy
 
         with torch.no_grad():
-            t = torch.from_numpy(np.ascontiguousarray(emb, dtype=np.float32))
+            t = torch.from_numpy(np.ascontiguousarray(emb, dtype=np.float32)).to(
+                self._device
+            )
             out = self._head.forward(t, self._slot.get("mod"))
         return out.detach().cpu().numpy().astype(np.float32)

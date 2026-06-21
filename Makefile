@@ -7,7 +7,13 @@
 PYTHON ?= python
 PIP ?= $(PYTHON) -m pip
 
-.PHONY: help install install-cpu test smoke evaluate train build-index info lint clean
+.PHONY: help install install-cpu test smoke real-proof evaluate train build-index info lint clean
+
+# Real-proof knobs (override on the command line, e.g.
+#   make real-proof SUBSET=1500 ARGS="--no-train").
+DATASET ?= eurosat
+SUBSET ?= 2000
+ARGS ?=
 
 help:  ## Show this help.
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -27,6 +33,9 @@ test:  ## Run the full test suite.
 
 smoke:  ## Run the end-to-end synthetic smoke test (with whitening).
 	$(PYTHON) -m xsretrieval.cli smoke-test
+
+real-proof:  ## AUTOMATED real-data proof: download real imagery + real backbone -> genuine F1. DATASET/SUBSET/ARGS overridable.
+	$(PYTHON) scripts/run_real_proof.py --dataset $(DATASET) --backbone auto --subset $(SUBSET) $(ARGS)
 
 evaluate:  ## Evaluate the default config (synthetic fallback). CONFIG overridable.
 	$(PYTHON) -m xsretrieval.cli evaluate --config $(or $(CONFIG),configs/zero_shot.yaml)

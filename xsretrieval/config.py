@@ -199,7 +199,15 @@ class EvalConfig:
 
 @dataclass
 class TrainConfig:
-    """Projection-head training recipe (torch; used by the ``train`` command)."""
+    """Projection-head training recipe (torch; used by the ``train`` command).
+
+    ``device`` controls where the projection head, the ArcFace/loss parameters,
+    the cached frozen embeddings, and the per-batch tensors live. ``None`` /
+    ``"auto"`` auto-detects (cuda if available, else cpu) and also honors
+    ``backbone.kwargs.device``; set it to ``"cuda"`` on a GPU box to actually
+    accelerate head training. A requested ``"cuda"`` that is unavailable falls
+    back to cpu, so CPU-only runs are unaffected.
+    """
 
     epochs: int = 5
     lr: float = 1e-3
@@ -212,6 +220,7 @@ class TrainConfig:
     w_triplet: float = 0.5
     temperature: float = 0.07
     seed: int = 0
+    device: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

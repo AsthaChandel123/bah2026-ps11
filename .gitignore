@@ -172,6 +172,12 @@ tmp/
 temp/
 scratch/
 
+# Generated retrieval bundles / proof artifacts (the run-real-proof outputs:
+# index, whitener.npz, results.json, used_args.json). The committed proof is
+# the Markdown report under docs/, not these regenerable binaries.
+/artifacts/
+artifacts/
+
 # ----- Misc -----
 *.bak
 *.tmp
