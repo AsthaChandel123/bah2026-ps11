@@ -86,6 +86,30 @@ and the rendered flowchart in
 
 ---
 
+## Next steps: GPU training (F1 ≥ 0.8) & Cloud Run deployment
+
+The numbers above are a **synthetic mechanism-demo** — produced by a deterministic
+numpy substrate, not by a real backbone on real satellite data. They prove the
+pipeline works (whitening closes the modality gap; sub-ms retrieval) but **say nothing
+about competition accuracy, and no real-data training run has been produced yet.**
+
+Two follow-on guides take it from here:
+
+- **[`docs/GPU_RUNBOOK.md`](docs/GPU_RUNBOOK.md)** — Phase 1: set up a GPU box,
+  download real data (EuroSAT → SEN12MS), and train/evaluate with the research-backed
+  recipe (gallery calibration so `R_q ≈ K`, foundation backbone, per-modality
+  whitening, projection-head training, k-reciprocal re-rank) until **F1@5 and F1@10 ≥
+  0.8 for both same- and cross-modal** on a held-out split.
+- **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** — Phase 2: containerize the FastAPI
+  service (see the repo [`Dockerfile`](Dockerfile) and
+  [`deploy/deploy_cloudrun.sh`](deploy/deploy_cloudrun.sh)) and deploy a frontend +
+  the hosted model on **Google Cloud Run**.
+
+For an agent picking this up, **[`CLAUDE.md`](CLAUDE.md)** is the entry point (current
+state, the owner's goals in priority order, and which runbook to follow).
+
+---
+
 ## Quickstart
 
 ```bash

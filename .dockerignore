@@ -1,0 +1,46 @@
+# Keep the serving image small and reproducible.
+# NOTE: artifacts/index/ (the small retrieval bundle) is intentionally NOT ignored
+# so the Dockerfile can bake it into the image (see docs/DEPLOYMENT.md option (i)).
+
+# Version control / CI / editor cruft
+.git
+.github
+.gitignore
+.vscode
+.idea
+
+# Python caches / build outputs
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Datasets (never ship raw data into the image)
+data/
+
+# HuggingFace / torch caches that may exist locally
+.hf_cache/
+.cache/
+
+# Large / non-serving training artifacts (keep only artifacts/index/)
+artifacts/*.pt
+artifacts/*.npz
+artifacts/*.json
+artifacts/checkpoints/
+
+# Notebooks / scratch
+*.ipynb
+notebooks/
