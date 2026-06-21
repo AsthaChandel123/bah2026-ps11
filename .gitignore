@@ -1,0 +1,180 @@
+# ============================================================================
+# .gitignore — BAH 2026 PS11: Cross-Modal Satellite Image Retrieval
+# Python / PyTorch / ML / geospatial project
+# Goal: ignore generated artifacts, large data, and model weights — NOT source.
+# ============================================================================
+
+# ----- Python bytecode / caches -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# ----- Virtual environments -----
+.venv/
+venv/
+env/
+ENV/
+.env/
+.virtualenv/
+.python-version
+
+# ----- Packaging / build artifacts -----
+*.egg-info/
+*.egg
+build/
+dist/
+sdist/
+wheels/
+*.whl
+pip-wheel-metadata/
+.eggs/
+
+# ----- Test / type / lint caches -----
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+
+# ----- Notebooks -----
+.ipynb_checkpoints/
+*-checkpoint.ipynb
+profile_default/
+ipython_config.py
+
+# ----- OS / editor cruft -----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# ----- Secrets / environment -----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.yaml
+secrets.yml
+credentials.json
+
+# ============================================================================
+# Large datasets & geospatial rasters
+# (Keep small curated samples under data/samples/ via the negations below.)
+# NOTE: negations must come AFTER the broad ignores, and a directory must be
+# re-included before files inside it can be re-included (git cannot un-ignore
+# a file if its parent directory is still ignored).
+# ============================================================================
+/data/
+datasets/
+*.tif
+*.tiff
+*.jp2
+*.img
+*.hdf
+*.hdf5
+*.h5
+*.he5
+*.nc
+*.grib
+*.grib2
+*.zarr/
+*.npy
+*.npz
+
+# Allow a small, version-controlled sample set for tests/demos.
+# Re-include the directories first, then the files within them.
+!/data/
+/data/*
+!/data/README.md
+!/data/.gitkeep
+!/data/samples/
+!/data/samples/**
+
+# ============================================================================
+# Model weights / checkpoints / embeddings / vector indexes
+# (Foundation-model weights are downloaded at runtime, not committed.)
+# ============================================================================
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.pb
+*.tflite
+*.gguf
+*.bin
+*.h5.keras
+*.keras
+models/weights/
+models/checkpoints/
+checkpoints/
+weights/
+
+# Vector / similarity-search indexes (FAISS, etc.)
+*.faiss
+*.index
+*.ann
+*.usearch
+faiss_index/
+embeddings/
+*.embeddings
+
+# ============================================================================
+# Caches, logs, experiment tracking, run outputs
+# ============================================================================
+.cache/
+.huggingface/
+huggingface/
+.torch/
+torch_cache/
+.keras/
+
+# Experiment tracking
+wandb/
+mlruns/
+.mlflow/
+lightning_logs/
+runs/
+tensorboard/
+events.out.tfevents.*
+.neptune/
+.aim/
+
+# Logs & generated outputs
+logs/
+log/
+*.log
+outputs/
+output/
+results/
+tmp/
+temp/
+scratch/
+
+# ----- Misc -----
+*.bak
+*.tmp
+*.orig
+*.rej
+node_modules/
