@@ -1,0 +1,58 @@
+# xsretrieval — default pipeline configuration.
+#
+# Production-realistic zero-training pipeline: a DOFA foundation backbone (any
+# multi-sensor encoder; falls back to the numpy FallbackBackbone if its weights
+# are unavailable), per-modality whitening ON (the modality-gap fix), an auto
+# FAISS/numpy index, and F1@{5,10} evaluation.
+#
+# Data falls back to a synthetic multi-modal image dataset when the real dataset
+# is not present, so `python -m xsretrieval.cli evaluate --config configs/default.yaml`
+# always runs.
+
+name: default
+
+data:
+  dataset: synthetic        # eurosat | sen12ms | folder | synthetic
+  root: null
+  modalities: [optical_rgb, multispectral, sar]
+  size: 64
+  n_classes: 10
+  per_class: 16
+  query_frac: 0.3
+  class_balanced_gallery: true
+  substrate: image          # render multi-modal images (full encode path)
+  modality_shift: 2.5       # used only by the 'embedding' substrate
+  seed: 0
+
+backbone:
+  name: dofa                # DOFA multi-sensor encoder (graceful fallback)
+  embed_dim: 256
+  kwargs:
+    device: cpu
+
+projection:
+  enabled: false            # zero-training pipeline (whitening does the aligning)
+  out_dim: 256
+  hidden: 512
+  dropout: 0.1
+  share_final: true
+
+whitening:
+  enabled: true             # the single highest-ROI cross-modal lever
+  n_components: null         # full ZCA-style whitening (preserves shared frame)
+  remove_top_pc: 0
+  shrinkage: 0.9            # high shrinkage => safe, never worse than mean-centering
+  fit_on: gallery
+
+index:
+  type: auto                # auto-pick faiss factory by gallery size; numpy fallback
+  metric: ip                # inner product on L2-normalized vectors == cosine
+  nprobe: 16
+  rerank: false
+
+eval:
+  ks: [5, 10]
+  recall_mode: raw
+  measure_latency: true
+  latency_warmup: 50
+  latency_runs: 500

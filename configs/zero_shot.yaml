@@ -1,0 +1,53 @@
+# xsretrieval — zero-shot (no-training) pipeline configuration.
+#
+# Frozen backbone + per-modality whitening ONLY — no projection-head training.
+# This is the recommended out-of-the-box recipe and the one whose cross-modal F1
+# the smoke test demonstrates. It uses the 'embedding' substrate so the synthetic
+# data carries a realistic modality gap (the regime where whitening shines);
+# swap `backbone.name`/`substrate` for a real encoder + image dataset to deploy.
+#
+# Runs on bare numpy (no torch / faiss needed):
+#   python -m xsretrieval.cli evaluate --config configs/zero_shot.yaml
+
+name: zero_shot
+
+data:
+  dataset: synthetic
+  root: null
+  modalities: [optical_rgb, multispectral, sar]
+  size: 64
+  n_classes: 10
+  per_class: 20
+  query_frac: 0.3
+  class_balanced_gallery: true
+  substrate: embedding      # pre-encoded vectors with a modality gap
+  modality_shift: 2.5
+  seed: 0
+
+backbone:
+  name: precomputed         # serve the pre-encoded embedding "images" verbatim
+  embed_dim: 128
+  kwargs: {}
+
+projection:
+  enabled: false            # zero training
+
+whitening:
+  enabled: true
+  n_components: null
+  remove_top_pc: 0
+  shrinkage: 0.9
+  fit_on: gallery
+
+index:
+  type: auto
+  metric: ip
+  nprobe: 16
+  rerank: false
+
+eval:
+  ks: [5, 10]
+  recall_mode: raw
+  measure_latency: true
+  latency_warmup: 50
+  latency_runs: 500

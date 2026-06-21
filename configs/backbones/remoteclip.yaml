@@ -1,0 +1,24 @@
+# RemoteCLIP backbone — CLIP fine-tuned on remote-sensing image/text pairs.
+#
+# RemoteCLIP gives a strong RGB/optical embedding tuned to overhead imagery; SAR
+# / MS inputs are adapted to pseudo-RGB by the shared channel adaptation. Falls
+# back to FallbackBackbone if the checkpoint is unavailable.
+
+name: remoteclip
+
+backbone:
+  name: remoteclip
+  embed_dim: 512
+  kwargs:
+    device: cpu
+
+whitening:
+  enabled: true
+  shrinkage: 0.9
+
+index:
+  type: auto
+  metric: ip
+
+eval:
+  ks: [5, 10]

@@ -1,0 +1,28 @@
+# DINOv2 backbone — self-supervised ViT features (no labels needed).
+#
+# DINOv2 produces strong general-purpose dense/global features; an excellent
+# frozen RGB backbone. Verified to load and embed on CPU (HF
+# `facebook/dinov2-small` => 384-d). Non-RGB inputs are adapted to pseudo-RGB.
+# Falls back to FallbackBackbone if transformers / weights are unavailable.
+#
+#   python -m xsretrieval.cli evaluate --config configs/backbones/dinov2.yaml
+
+name: dinov2
+
+backbone:
+  name: dinov2
+  embed_dim: 384
+  kwargs:
+    model_name: facebook/dinov2-small   # small => fast CPU load; use -base for 768-d
+    device: cpu
+
+whitening:
+  enabled: true
+  shrinkage: 0.9
+
+index:
+  type: auto
+  metric: ip
+
+eval:
+  ks: [5, 10]

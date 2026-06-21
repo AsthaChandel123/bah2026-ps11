@@ -1,0 +1,93 @@
+%% BAH 2026 PS-11 — Cross-Modal Satellite Image Retrieval
+%% Master system overview flowchart (xsretrieval)
+%% Render: mmdc -i system_overview.mmd -o system_overview.svg
+%%   or paste into https://mermaid.live
+flowchart TD
+    %% ----------------------------- DATA LAYER -----------------------------
+    subgraph DATA["1 · DATA LAYER (multi-sensor, co-registered)"]
+        direction TB
+        D1["PRIMARY: SEN12MS<br/>S1 SAR VV/VH + S2 13-band MS<br/>+ derived RGB + IGBP label"]
+        D2["EVAL: DFC2020<br/>high-res 10 m IGBP labels"]
+        D3["SECONDARY: BigEarthNet-MM,<br/>QXS-SAROPT, SpaceNet6, So2Sat"]
+        D4["PROTOTYPE: EuroSAT / So2Sat subset"]
+    end
+
+    %% --------------------------- PREPROCESSING ---------------------------
+    subgraph PRE["2 · PREPROCESSING (per-modality)"]
+        direction TB
+        P1["SAR: dB-scale 10*log10(sigma0)<br/>despeckle (Lee/refined-Lee)<br/>clip + standardize, speckle aug"]
+        P2["MS: 13-band reflectance,<br/>per-band norm, band handling,<br/>optional NDVI/indices"]
+        P3["RGB: extract B4,B3,B2<br/>8-bit percentile stretch,<br/>CLIP/ImageNet norm"]
+        P4["resize 224x224,<br/>shared-seed geometric for pairs"]
+    end
+
+    %% ------------------------- BACKBONE EMBEDDING -------------------------
+    subgraph BB["3 · BACKBONE EMBEDDING (frozen, pluggable)"]
+        direction TB
+        B1["DEFAULT: DOFA ViT-B/16<br/>wavelength-conditioned<br/>ONE shared 768-d space"]
+        B2["CO-DEFAULT: CROMA ViT-B<br/>radar-optical, joint_GAP 768-d"]
+        B3["OPTICAL: RemoteCLIP ViT-L 768-d"]
+        B4["FALLBACK: OpenCLIP B/32 512-d,<br/>DINOv2-B 768-d, numpy-offline"]
+    end
+
+    %% ----------------------- PROJECTION / ALIGNMENT -----------------------
+    subgraph ALIGN["4 · PROJECTION / ALIGNMENT HEADS"]
+        direction TB
+        A1["per-modality MLP g_m: 768->512->256<br/>FINAL linear layer SHARED<br/>optional LoRA r=8 on last blocks"]
+        A2["Losses: sym-InfoNCE (tau~0.07)<br/>+ Sub-center ArcFace (s=64,m=0.5,K=3)<br/>+ cross-modal batch-hard triplet (m~0.1)<br/>+ optional Smooth-AP"]
+    end
+
+    %% ----------------------- WHITENING / GAP FIX -------------------------
+    subgraph WHITE["5 · PER-MODALITY GAP REMOVAL"]
+        direction TB
+        W1["per-modality mean-center: e - mu_m<br/>(highest ROI, training-free)"]
+        W2["PCA / ZCA whitening Sigma_m^-1/2<br/>+ optional top-PC removal"]
+        W3["L2-normalize -> unit hypersphere"]
+    end
+
+    %% ----------------------------- INDEXING ------------------------------
+    subgraph INDEX["6 · INDEXING (one shared space)"]
+        direction TB
+        I1["ONE FAISS index over ALL-modality embeddings<br/>+ modality side-array (0=OPT,1=MS,2=SAR)"]
+        I2["factory by gallery size:<br/>Flat | HNSW32,Flat |<br/>OPQ32,IVF...,PQ32 + refine"]
+        I3["binary hash: ITQ/CSQ -> 64-bit codes<br/>IndexBinaryMultiHash (MIH)"]
+    end
+
+    %% ----------------------------- RETRIEVAL -----------------------------
+    subgraph RET["7 · RETRIEVAL (hybrid, near-O(1))"]
+        direction TB
+        R1["coarse: binary-hash MIH OR FastScan/HNSW<br/>-> candidate pool ~200-500"]
+        R2["exact float refine (IndexRefineFlat)<br/>cosine on candidate pool -> top-100"]
+        R3["k-reciprocal re-rank<br/>k1=20,k2=6,lambda=0.3 on top ~20"]
+        R4["modality filter via side-array<br/>same-modal / cross-modal cells"]
+    end
+
+    %% ---------------------------- EVALUATION -----------------------------
+    subgraph EVAL["8 · EVALUATION"]
+        direction TB
+        E1["F1@K = 2*r_K/(K+R_q)<br/>P@K=r_K/K, R@K=r_K/R_q"]
+        E2["query x gallery matrix:<br/>same-modal diag + cross-modal off-diag"]
+        E3["avg retrieval time/query<br/>warmup, batch=1, search-only"]
+    end
+
+    %% ------------------------------ SERVING ------------------------------
+    subgraph SERVE["9 · SERVING"]
+        direction TB
+        S1["CLI: xsretrieval build|query|eval"]
+        S2["REST API: /embed /search /eval"]
+        S3["demo UI: query image -> top-5/10 grid"]
+    end
+
+    %% ----------------------------- DATA FLOW -----------------------------
+    DATA --> PRE --> BB --> ALIGN --> WHITE --> INDEX --> RET --> EVAL --> SERVE
+
+    %% gallery is embedded once, offline; query path is online
+    INDEX -. "gallery embedded once (offline)" .-> I1
+    RET -. "online query path" .-> R1
+
+    classDef primary fill:#1b4f72,stroke:#0b2c44,color:#fff;
+    classDef accent fill:#117a65,stroke:#0a3d33,color:#fff;
+    classDef warn fill:#7d6608,stroke:#4d3f05,color:#fff;
+    class D1,D2 primary;
+    class B1,B2 accent;
+    class W1,R1,I3 warn;

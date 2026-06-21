@@ -1,0 +1,25 @@
+# CROMA backbone — Contrastive Radar-Optical Masked Autoencoder.
+#
+# CROMA is pretrained jointly on co-registered Sentinel-1 (SAR) and Sentinel-2
+# (optical/MS), so its embedding space already aligns radar and optical — a
+# strong fit for cross-modal retrieval. Falls back to FallbackBackbone if the
+# weights cannot be loaded.
+
+name: croma
+
+backbone:
+  name: croma
+  embed_dim: 256
+  kwargs:
+    device: cpu
+
+whitening:
+  enabled: true
+  shrinkage: 0.9
+
+index:
+  type: auto
+  metric: ip
+
+eval:
+  ks: [5, 10]

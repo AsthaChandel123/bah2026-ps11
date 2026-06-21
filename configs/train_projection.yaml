@@ -1,0 +1,72 @@
+# xsretrieval — projection-head training recipe (requires torch).
+#
+# Trains a shared per-modality projection head on top of a FROZEN backbone using
+# the combined cross-modal objective (1.5*InfoNCE + 1*SubCenterArcFace +
+# 0.5*batch-hard-triplet) and a modality-balanced P*K sampler. CPU-runnable on
+# the synthetic set for a few epochs:
+#
+#   python -m xsretrieval.cli train --config configs/train_projection.yaml --out head.pt
+#
+# After training, plug the saved head back in via `projection.weights`.
+
+name: train_projection
+
+data:
+  dataset: synthetic
+  root: null
+  modalities: [optical_rgb, multispectral, sar]
+  size: 64
+  n_classes: 10
+  per_class: 24
+  query_frac: 0.3
+  class_balanced_gallery: true
+  substrate: image
+  modality_shift: 2.5
+  seed: 0
+
+backbone:
+  name: fallback            # frozen feature extractor (swap for dofa/croma/etc.)
+  embed_dim: 256
+  kwargs:
+    device: cpu
+
+projection:
+  enabled: true             # train this head
+  out_dim: 256
+  hidden: 512
+  dropout: 0.1
+  share_final: true         # weight-tie the final layer across modalities
+  weights: null             # set to a .pt path to resume / serve a trained head
+
+whitening:
+  enabled: true             # whiten on top of the trained projection at inference
+  n_components: null
+  remove_top_pc: 0
+  shrinkage: 0.9
+  fit_on: gallery
+
+index:
+  type: auto
+  metric: ip
+  nprobe: 16
+  rerank: false
+
+eval:
+  ks: [5, 10]
+  recall_mode: raw
+  measure_latency: true
+  latency_warmup: 50
+  latency_runs: 500
+
+train:
+  epochs: 5
+  lr: 0.001
+  weight_decay: 0.0001
+  batch_p: 8                # classes per batch
+  batch_k: 4                # instances per class (batch size = p*k)
+  batches_per_epoch: null    # null => ~cover all classes once per epoch
+  w_infonce: 1.5
+  w_arcface: 1.0
+  w_triplet: 0.5
+  temperature: 0.07
+  seed: 0
