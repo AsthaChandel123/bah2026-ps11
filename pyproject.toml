@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xsretrieval"
+version = "0.1.0"
+description = "Cross-modal satellite image retrieval (BAH 2026 PS-11): multi-sensor foundation backbones, shared-space alignment, O(1) FAISS retrieval, F1@K evaluation."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "BAH 2026 PS-11 Team" }]
+keywords = [
+    "remote-sensing",
+    "cross-modal-retrieval",
+    "satellite-imagery",
+    "sar",
+    "multispectral",
+    "image-retrieval",
+    "foundation-models",
+    "faiss",
+]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+
+# Minimal hard dependency: the numpy retrieval / whitening path runs on this
+# alone. Everything heavier is an optional extra (see [project.optional-dependencies]).
+dependencies = [
+    "numpy>=1.24,<3",
+]
+
+[project.optional-dependencies]
+# CPU compute stack (torch / faiss / sklearn) — the validated real path.
+compute = [
+    "torch>=2.1",
+    "faiss-cpu>=1.7.4",
+    "scikit-learn>=1.3",
+    "scipy>=1.10",
+    "tqdm>=4.65",
+]
+# Foundation-model encoders (DINOv2, OpenCLIP, RemoteCLIP, DOFA, CROMA).
+models = [
+    "transformers>=4.38",
+    "timm>=0.9.16",
+    "open_clip_torch>=2.24",
+    "huggingface_hub>=0.21",
+]
+# Config + geospatial IO.
+io = [
+    "pyyaml>=6.0",
+    "pillow>=10.0",
+    "rasterio>=1.3",
+]
+# REST API + interactive demo.
+serve = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "gradio>=4.0",
+    "python-multipart>=0.0.9",
+]
+# Tests.
+test = ["pytest>=8.0"]
+# Everything.
+all = [
+    "xsretrieval[compute,models,io,serve,test]",
+]
+
+[project.scripts]
+xsretrieval = "xsretrieval.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/AsthaChandel123/bah2026-ps11"
+Repository = "https://github.com/AsthaChandel123/bah2026-ps11"
+
+[tool.setuptools.packages.find]
+# Flat layout: the package lives at <repo_root>/xsretrieval (no src/).
+where = ["."]
+include = ["xsretrieval*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"

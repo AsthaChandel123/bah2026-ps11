@@ -1,0 +1,28 @@
+# Fallback backbone — deterministic, numpy-only feature extractor.
+#
+# No model downloads, no torch required: hand-crafted multi-scale appearance
+# statistics + a fixed random projection. This is the always-works safety net
+# the registry falls back to, and the backbone the pure-numpy smoke path uses.
+# Above chance on the synthetic benchmark; use a foundation backbone for real
+# accuracy.
+#
+#   python -m xsretrieval.cli evaluate --config configs/backbones/fallback.yaml
+
+name: fallback
+
+backbone:
+  name: fallback
+  embed_dim: 256
+  kwargs:
+    device: cpu
+
+whitening:
+  enabled: true
+  shrinkage: 0.9
+
+index:
+  type: auto
+  metric: ip
+
+eval:
+  ks: [5, 10]

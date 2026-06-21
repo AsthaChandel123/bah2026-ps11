@@ -1,0 +1,26 @@
+# OpenCLIP backbone — open-source CLIP (ViT-B/32, LAION).
+#
+# A general-purpose vision-language encoder; a solid zero-shot RGB baseline.
+# Non-RGB modalities are adapted to pseudo-RGB. Falls back to FallbackBackbone
+# if open_clip / weights are unavailable.
+
+name: openclip
+
+backbone:
+  name: openclip
+  embed_dim: 512
+  kwargs:
+    model_name: ViT-B-32
+    pretrained: laion2b_s34b_b79k
+    device: cpu
+
+whitening:
+  enabled: true
+  shrinkage: 0.9
+
+index:
+  type: auto
+  metric: ip
+
+eval:
+  ks: [5, 10]

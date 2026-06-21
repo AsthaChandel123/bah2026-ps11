@@ -158,10 +158,37 @@ def _fit_whitening(
     keep_eig = eigvals[start:end]           # (k,)
     inv_sqrt = 1.0 / np.sqrt(keep_eig + eps)  # (k,)
 
-    # PCA-style whitening matrix W (k, d): z = (e - mean) @ W.T.
-    # Row i of W is inv_sqrt[i] * V[:, i] = inv_sqrt[i] * keep_vt[i].
-    W = (keep_vt * inv_sqrt[:, None]).astype(np.float32)
-    return mean.astype(np.float32), W
+    # Whitening matrix W so that ``z = (e - mean) @ W.T``.
+    #
+    # We use the **ZCA-style symmetric** whitening transform
+    # ``W = V_keep @ diag(1/sqrt(λ_keep)) @ V_keep^T`` (shape (d, d)) whenever we
+    # keep the full set of (post-top-PC-removal) components. ZCA is the *minimum
+    # rotation* whitener: it makes each modality's cloud isotropic **without**
+    # rotating it into its own private eigenbasis. This is essential for
+    # cross-modal retrieval — the PCA-style whitener ``diag(1/sqrt(λ)) @ V^T``
+    # rotates every modality into a *different* basis ``V_m``, which destroys the
+    # alignment between modalities (two semantically-identical optical/SAR
+    # vectors land in different coordinate frames). ZCA keeps the shared frame,
+    # so per-modality mean-centering + isotropic scaling closes the modality gap
+    # while preserving cross-modal comparability (research
+    # ``03_crossmodal_alignment.md`` §13, the "ZCA-style" formula in this
+    # module's docstring). As ``shrinkage -> 1`` the eigenvalues collapse to
+    # their mean and ZCA degenerates to per-modality mean-centering + uniform
+    # scaling (the highest-ROI, always-safe remedy).
+    #
+    # When the caller explicitly reduces dimensionality (``n_components`` set, so
+    # ``end - start < d``) a symmetric square map is impossible, so we fall back
+    # to the rectangular PCA-style whitener ``diag(1/sqrt(λ)) @ V_keep^T``. In
+    # that mode the output lives in a per-modality subspace and is intended for
+    # same-modal / dimensionality-reduction use rather than cross-modal search.
+    keep_full = (start == 0) and (end == total)
+    if keep_full:
+        # ZCA: W = V diag(1/sqrt(λ)) V^T  (symmetric, (d, d)).
+        W = (keep_vt.T * inv_sqrt[None, :]) @ keep_vt
+    else:
+        # PCA-style rectangular whitener (k, d): row i = inv_sqrt[i] * V[:, i].
+        W = keep_vt * inv_sqrt[:, None]
+    return mean.astype(np.float32), W.astype(np.float32)
 
 
 class PerModalityWhitener:

@@ -1,0 +1,26 @@
+# DOFA backbone — Dynamic One-For-All multi-sensor foundation encoder.
+#
+# DOFA ingests arbitrary spectral bands via a wavelength-conditioned dynamic
+# patch embedding, making it a natural single-encoder choice for optical / MS /
+# SAR. Falls back to the numpy FallbackBackbone if weights are unavailable.
+#
+#   python -m xsretrieval.cli evaluate --config configs/backbones/dofa.yaml
+
+name: dofa
+
+backbone:
+  name: dofa
+  embed_dim: 256
+  kwargs:
+    device: cpu
+
+whitening:
+  enabled: true
+  shrinkage: 0.9
+
+index:
+  type: auto
+  metric: ip
+
+eval:
+  ks: [5, 10]

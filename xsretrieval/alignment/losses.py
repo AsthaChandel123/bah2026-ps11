@@ -288,6 +288,38 @@ def _pairwise_cosine_dist(z):
     return 1.0 - sim
 
 
+def _modalities_to_codes(modalities, device):
+    """Coerce a modality batch to a ``(B,)`` long tensor of integer codes.
+
+    Accepts any of: a torch ``LongTensor`` / tensor of codes (used as-is), a
+    numpy array, or a Python sequence of
+    :class:`~xsretrieval.data.modalities.Modality` enums / raw strings / ints.
+    Only the *equality structure* matters for the cross-modal masks, so distinct
+    modality values are mapped to distinct integers (preserving any existing
+    integer codes). This makes the triplet / combined losses robust to the
+    natural ``list[Modality]`` produced by the dataset layer, not just
+    pre-encoded tensors.
+    """
+    torch = _torch()
+    if torch.is_tensor(modalities):
+        return modalities.to(device=device, dtype=torch.long)
+
+    # numpy array or generic sequence -> stable integer codes by value.
+    seq = list(modalities)
+    codes: list[int] = []
+    mapping: dict = {}
+    for m in seq:
+        if isinstance(m, (int,)) or (hasattr(m, "__index__") and not isinstance(m, str)):
+            key = int(m)
+        else:
+            key = getattr(m, "value", m)  # Modality enum -> its string value
+            key = str(key)
+        if key not in mapping:
+            mapping[key] = len(mapping)
+        codes.append(mapping[key])
+    return torch.as_tensor(codes, dtype=torch.long, device=device)
+
+
 def batch_hard_triplet(
     embeddings,
     labels,
@@ -349,7 +381,7 @@ def batch_hard_triplet(
     neg_mask = ~lab_eq                                    # different class
 
     if cross_modal and modalities is not None:
-        mod = modalities.to(device)
+        mod = _modalities_to_codes(modalities, device)
         if mod.ndim > 1:
             mod = mod.view(-1)
         diff_mod = mod[:, None] != mod[None, :]           # (B, B) cross-modal

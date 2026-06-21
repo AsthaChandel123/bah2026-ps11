@@ -40,6 +40,7 @@ from xsretrieval.alignment.whitening import (
     PerModalityWhitener,
     mean_center_per_modality,
 )
+from xsretrieval.alignment.trainer import TrainResult, train_projection
 
 __all__ = [
     # losses
@@ -54,4 +55,7 @@ __all__ = [
     "PerModalityWhitener",
     "GlobalWhitener",
     "mean_center_per_modality",
+    # training
+    "train_projection",
+    "TrainResult",
 ]
